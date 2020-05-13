@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script type="text/javascript">
+        (function() {
+            var css = document.createElement('link');
+            css.href = 'https://use.fontawesome.com/releases/v5.1.0/css/all.css';
+            css.rel = 'stylesheet';
+            css.type = 'text/css';
+            document.getElementsByTagName('head')[0].appendChild(css);
+        })();
+    </script>
+    <link href="https://fonts.googleapis.com/css?family=Lato|Cairo|Roboto&display=swap" rel="stylesheet">
+    <link rel="stylesheet" type="text/css" href="style.css" />
+</head>
+
+<body>
+
+    <div id="media_player" tabindex="0">
+        <video src="http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" autoplay="false" preload="auto"></video>
+        <div id="first_play">
+            <i class="fas fa-play"></i>
+        </div>
+        <div id="video_overlay"></div>
+        <div id="info">
+            <img src="img/three-dots.svg" width="60" alt="">
+        </div>
+        <div id="controls">
+            <div id="seek_bar">
+                <div id="hover_time">00:00</div>
+                <div id="seekable"></div>
+                <div id="seeked"></div>
+                <div id="knob"></div>
+            </div>
+            <div id="left_controls">
+                <div id="play_pause" class="control">
+                    <i class="fas fa-play"></i>
+                    <span class="tooltip">Play (k)</span>
+                </div>
+                <div id="volume_container" class="control">
+                    <div id="volume_icon" class="control">
+                        <i class="fas fa-volume-up"></i>
+                        <span class="tooltip">Mute (m)</span>
+                    </div>
+                    <div id="volume_slider">
+                        <div id="volume_knob"></div>
+                        <div id="volume_bar"></div>
+                    </div>
+
+                </div>
+                <div id="time_container">
+                    <span id="current_time">00:00</span>
+                    <span id="current_time">/</span>
+                    <span id="total_duration">00:00</span>
+                </div>
+            </div>
+            <div id="right_controls">
+                <div id="pip" class="control">
+                    <svg fill="#fff" id="plyr-pip">
+                        <path d="M13.293 3.293L7.022 9.564l1.414 1.414 6.271-6.271L17 7V1h-6z"></path>
+                        <path d="M13 15H3V5h5V3H2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6h-2v5z"></path>
+                    </svg>
+                    <span class="tooltip">Picture-in-Picture</span>
+                </div>
+                <div id="full_screen" class="control">
+                    <i class="fas fa-expand"></i>
+                    <span class="tooltip">Fullscreen (f)</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var controlsContainer = document.getElementById('controls');
+        var fullScreen = document.getElementById('full_screen');
+        var videoContainer = document.getElementById('media_player');
+        var playPause = document.getElementById('play_pause');
+        var seekBar = document.getElementById('seek_bar');
+        var knob = document.getElementById('knob');
+        var currentTimeSpan = document.getElementById('current_time');
+        var totalDurationSpan = document.getElementById('total_duration');
+        var seekedDiv = document.getElementById('seeked');
+        var seekableDiv = document.getElementById('seekable');
+        var hoverTime = document.getElementById('hover_time');
+        var video = document.getElementsByTagName("video")[0];
+        var volumeSlider = document.getElementById('volume_slider');
+        var volumeBar = document.getElementById('volume_bar');
+        var volumeKnob = document.getElementById('volume_knob');
+        var videoOverlay = document.getElementById('video_overlay');
+        var loadingAnimation = document.getElementById('info');
+        var bigPlaybutton = document.getElementById('first_play');
+        var volumeDiv = document.getElementById('volume_icon');
+        var volumeIcon = volumeDiv.getElementsByTagName('i')[0];
+        var pip = document.getElementById('pip');
+        var tooltips = document.getElementsByClassName('tooltip');
+
+        var videoHieght = videoContainer.clientHeight;
+        var videoWidth = videoContainer.clientWidth;
+        var videoVolume = localStorage.getItem("volume");
+
+        var active = false;
+        var currentX;
+        var initialX;
+        var xOffset = 0;
+        var firstPlay = true;
+        var wasPlaying = false;
+        var hideControlsDuration = 3000; //in ms
+
+        if (isMobileDevice()) {
+            for (var i = 0; i < tooltips.length; i++) {
+                tooltips[i].style.opacity = 0;
+            }
+        }
+
+        video.pause();
+
+        if (videoVolume != null) {
+            volumeBar.style.width = videoVolume * 100 + '%';
+            volumeKnob.style.left = (videoVolume * 100 - 8) + "%";
+            video.volume = videoVolume;
+        }
+
+        if (!document.pictureInPictureEnabled) {
+            pip.style.display = "none";
+        }
+
+        console.log("Width: " + videoWidth + ", Height: " + videoHieght);
+        console.log("Stored Volume : " + videoVolume);
+
+        fullScreen.addEventListener('click', function() {
+            if (!videoContainer.classList.contains("full_screen_state")) {
+                openFullscreen(videoContainer);
+            } else {
+                closeFullscreen();
+            }
+        });
+
+        playPause.addEventListener('click', function() {
+            togglePlayPause();
+        });
+
+        videoOverlay.addEventListener('click', function() {
+            if (isMobileDevice()) {
+                controlsContainer.style.display = "block";
+            } else {
+                togglePlayPause();
+            }
+        });
+
+        video.addEventListener('loadedmetadata', function() {
+            totalDurationSpan.innerHTML = timeFormat(this.duration);
+            setInterval(function() {
+                var bufferedEnd = video.buffered.end(video.buffered.length - 1);
+                var duration = video.duration;
+                seekableDiv.style.width = ((bufferedEnd / duration) * 100) + "%";
+            }, 1000);
+        });
+
+        video.addEventListener('timeupdate', function() {
+            var percentageDuration = this.currentTime / this.duration;
+            seekedDiv.style.width = percentageDuration * 100 + '%';
+            knob.style.left = (percentageDuration - 8 / seekBar.clientWidth) * 100 + '%';
+            currentTimeSpan.innerHTML = timeFormat(this.currentTime);
+        });
+
+        videoOverlay.addEventListener('dblclick', function(e) {
+            e.preventDefault();
+            if (!videoContainer.classList.contains("full_screen_state")) {
+                openFullscreen(videoContainer);
+            } else {
+                closeFullscreen();
+            }
+        })
+
+        seekBar.addEventListener('click', function(e) {
+            var offset = this.getClientRects()[0];
+            var ratio = (e.clientX - offset.left) / this.clientWidth;
+            if (!video.paused) {
+                video.pause();
+                video.currentTime = ratio * video.duration;
+                var timer = setInterval(function() {
+                    if (video.paused && video.readyState == 4 || !video.paused) {
+                        video.play();
+                        clearInterval(timer);
+                    }
+                }, 50);
+            } else {
+                video.currentTime = ratio * video.duration;
+            }
+
+            seekedDiv.style.width = ratio * 100 + '%';
+            knob.style.left = (ratio - (knob.clientWidth / 2) / this.clientWidth) * 100 + '%';
+        });
+
+        seekBar.addEventListener('mousemove', function(e) {
+            var offset = this.getClientRects()[0];
+            var position;
+
+            if (e.clientX - offset.left < 0) {
+                position = 0;
+            } else if (e.clientX - offset.left > seekBar.clientWidth) {
+                position = seekBar.clientWidth;
+            } else {
+                position = e.clientX - offset.left;
+            }
+
+            var ratio = position / this.clientWidth;
+            var hoverTimeValue = video.duration * ratio;
+
+            hoverTime.innerHTML = timeFormat(hoverTimeValue);
+
+            if (position < hoverTime.clientWidth / 2 && position >= 0) {
+                hoverTime.style.left = "0px";
+            } else if (position > this.clientWidth - hoverTime.clientWidth / 2 && position < this.clientWidth) {
+                hoverTime.style.left = (seekBar.clientWidth - hoverTime.clientWidth) + 'px';
+            } else {
+                hoverTime.style.left = (e.clientX - offset.left) - hoverTime.clientWidth / 2 + 'px';
+            }
+        });
+
+        volumeSlider.addEventListener('click', function(e) {
+            var offset = this.getClientRects()[0];
+            var position;
+            if ((e.clientX - offset.left) / this.clientWidth <= 0.06) {
+                position = 0;
+            } else if (e.clientX - offset.left > this.clientWidth) {
+                position = this.clientWidth;
+            } else {
+                position = e.clientX - offset.left;
+            }
+            var ratio = position / this.clientWidth;
+
+            video.volume = ratio;
+            volumeBar.style.width = ratio * 100 + '%';
+            volumeKnob.style.left = (ratio - (volumeKnob.clientWidth / 2) / this.clientWidth) * 100 + '%';
+        });
+
+        videoContainer.addEventListener('keyup', function(e) {
+            switch (e.keyCode) {
+                case 32: // Space key
+                case 75: // K key
+                    togglePlayPause();
+                    break;
+                case 37: // leftArrow key
+                    if (video.currentTime - 5 > 0) {
+                        if (!video.paused) {
+                            video.pause();
+                            video.currentTime += 5;
+                            var timer = setInterval(function() {
+                                if (video.paused && video.readyState == 4 || !video.paused) {
+                                    video.play();
+                                    clearInterval(timer);
+                                }
+                            }, 50);
+                        } else {
+                            video.currentTime += 5;
+                        }
+                    } else {
+                        if (!video.paused) {
+                            video.pause();
+                            video.currentTime = 0;
+                            var timer = setInterval(function() {
+                                if (video.paused && video.readyState == 4 || !video.paused) {
+                                    video.play();
+                                    clearInterval(timer);
+                                }
+                            }, 50);
+                        } else {
+                            video.currentTime = 0;
+                        }
+                    }
+                    break;
+                case 39: // RightArrow key
+                    if (video.currentTime + 5 < video.duration) {
+                        if (!video.paused) {
+                            video.pause();
+                            video.currentTime += 5;
+                            var timer = setInterval(function() {
+                                if (video.paused && video.readyState == 4 || !video.paused) {
+                                    video.play();
+                                    clearInterval(timer);
+                                }
+                            }, 50);
+                        } else {
+                            video.currentTime += 5;
+                        }
+                    }
+                    break;
+                case 70: // F key
+                    if (!videoContainer.classList.contains("full_screen_state")) {
+                        openFullscreen(videoContainer);
+                    } else {
+                        closeFullscreen();
+                    }
+                    break;
+                case 76: // L key
+                    if (video.currentTime + 10 < video.duration) {
+                        try {
+                            if (!video.paused) {
+                                video.pause();
+                                video.currentTime += 10;
+                                var timer = setInterval(function() {
+                                    if (video.paused && video.readyState == 4 || !video.paused) {
+                                        video.play();
+                                        clearInterval(timer);
+                                    }
+                                }, 50);
+                            } else {
+                                video.currentTime += 10;
+                            }
+
+                        } catch (e) {
+                            console.log(e);
+                        }
+                    }
+                    break;
+                case 74: // J key
+                    if (video.currentTime + 10 < video.duration) {
+                        try {
+                            if (!video.paused) {
+                                video.pause();
+                                video.currentTime -= 10;
+                                var timer = setInterval(function() {
+                                    if (video.paused && video.readyState == 4 || !video.paused) {
+                                        video.play();
+                                        clearInterval(timer);
+                                    }
+                                }, 50);
+                            } else {
+                                video.currentTime -= 10;
+                            }
+                        } catch (e) {
+                            console.log(e);
+                        }
+                    }
+                    break;
+                case 40:
+                    if (video.volume < 0.1) {
+                        video.volume = 0;
+                    } else {
+                        video.volume -= 0.1;
+                    }
+                    break;
+                case 38:
+                    if (video.volume > 0.9) {
+                        video.volume = 1;
+                    } else {
+                        video.volume += 0.1;
+                    }
+                    break;
+
+            }
+            controlsContainer.style.display = "block";
+        });
+
+        videoOverlay.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+            var rect = e.target.getBoundingClientRect();
+            var x = e.clientX - rect.left; //x position within the element.
+            var y = e.clientY - rect.top; //y position within the element.
+            console.log("Video right click : (" + x + "," + y + ")");
+        });
+
+        video.addEventListener('seeking', function() {
+            console.log("Video Waiting ...");
+            videoOverlay.classList.add("visible_overlay");
+            loadingAnimation.style.display = "flex";
+        });
+
+        video.addEventListener('seeked', function() {
+            videoOverlay.classList.remove("visible_overlay");
+            loadingAnimation.style.display = "none";
+        });
+
+        video.addEventListener('waiting', function() {
+            console.log("Video Waiting ...");
+            videoOverlay.classList.add("visible_overlay");
+            loadingAnimation.style.display = "flex";
+        });
+
+        video.addEventListener('canplaythrough', function() {
+            videoOverlay.classList.remove("visible_overlay");
+            loadingAnimation.style.display = "none";
+            //            if (wasPlaying) {
+            //                video.play();
+            //            } else {
+            //                video.pause();
+            //            }
+        });
+
+        video.addEventListener('pause', function() {
+            playPause.firstElementChild.classList.remove("fa-pause");
+            playPause.firstElementChild.classList.add("fa-play");
+        });
+
+        video.addEventListener('play', function() {
+            playPause.firstElementChild.classList.remove("fa-play");
+            playPause.firstElementChild.classList.add("fa-pause");
+            if (firstPlay) {
+                bigPlaybutton.style.display = "none";
+                firstPlay = false;
+            }
+
+        });
+
+        bigPlaybutton.addEventListener('click', function() {
+            video.play();
+            //            controlsContainer.style.display = "none";
+            this.style.display = "none";
+        });
+
+        pip.addEventListener('click', function() {
+            if (!document.pictureInPictureElement) {
+                video.requestPictureInPicture();
+//                    .catch(error => {
+//                        // Video failed to enter Picture-in-Picture mode.
+//                    });
+            } else {
+                document.exitPictureInPicture();
+//                    .catch(error => {
+//                        // Video failed to leave Picture-in-Picture mode.
+//                    });
+            }
+        });
+
+        video.addEventListener("volumechange", function() {
+            var volume = video.volume;
+            volumeBar.style.width = volume * 100 + '%';
+            volumeKnob.style.left = (volume - (volumeKnob.clientWidth / 2) / volumeSlider.clientWidth) * 100 + '%';
+            if (volume == 0 || video.muted) {
+                volumeIcon.classList.remove('fa-volume-up');
+                volumeIcon.classList.add('fa-volume-off');
+            } else {
+                volumeIcon.classList.remove('fa-volume-off');
+                volumeIcon.classList.add('fa-volume-up');
+            }
+
+            localStorage.setItem("volume", volume);
+            console.log('Volume : ' + video.volume);
+        });
+
+        volumeDiv.addEventListener('click', function() {
+            video.muted = !video.muted;
+        });
+
+        /*
+
+        knob.addEventListener("touchstart", dragStart, false);
+        document.addEventListener("touchend", dragEnd, false);
+        knob.addEventListener("touchmove", drag, false);
+
+        knob.addEventListener("mousedown", dragStart, false);
+        document.addEventListener("mouseup", dragEnd, false);
+        document.addEventListener("mousemove", drag, false);
+
+        function dragStart(e) {
+            if (e.type === "touchstart") {
+                initialX = e.touches[0].clientX - xOffset;
+            } else {
+                initialX = e.clientX - xOffset;
+            }
+            active = true;
+            if (!video.paused) {
+                    wasPlaying = true;
+            }
+            video.pause();
+            console.log('drag start');
+        }
+
+        function dragEnd(e) {
+            initialX = currentX;
+            active = false;
+            
+            var ratio = currentX / seekBar.clientWidth;
+            
+            try {
+                video.currentTime = video.duration * ratio;
+            } catch (e) {
+                //Catch Statement
+            }
+            
+            if (wasPlaying) {
+                video.play();
+                console.log("Play");
+            }
+            console.log('drag End');
+        }
+
+        function drag(e) {
+            if (active) {
+                e.preventDefault();
+
+                if (e.type === "touchmove") {
+                    if (e.touches[0].clientX - initialX < 0) {
+                        currentX = 0;
+                    } else if (e.touches[0].clientX - initialX > seekBar.clientWidth) {
+                        currentX = seekBar.clientWidth;
+                    } else {
+                        currentX = e.touches[0].clientX - initialX;
+                    }
+                } else {
+                    if (e.clientX - initialX < 0) {
+                        currentX = 0;
+                    } else if (e.clientX - initialX > seekBar.clientWidth) {
+                        currentX = seekBar.clientWidth;
+                    } else {
+                        currentX = e.clientX - initialX;
+                    }
+                }
+
+                xOffset = currentX;
+
+                var ratio = currentX / seekBar.clientWidth;
+                
+                seekedDiv.style.width = ratio*100 + "%";
+                knob.style.left = (ratio - (knob.clientWidth / 2) / seekBar.clientWidth) * 100 + "%";
+            }
+        }
+        
+        */
+
+        function togglePlayPause() {
+            if (!video.paused) {
+                video.pause();
+                wasPlaying = false;
+            } else {
+                video.play();
+                wasPlaying = true;
+            }
+        }
+
+        function openFullscreen(elem) {
+            if (elem.requestFullscreen) {
+                elem.requestFullscreen();
+            } else if (elem.mozRequestFullScreen) {
+                /* Firefox */
+                elem.mozRequestFullScreen();
+            } else if (elem.webkitRequestFullscreen) {
+                /* Chrome, Safari & Opera */
+                elem.webkitRequestFullscreen();
+            } else if (elem.msRequestFullscreen) {
+                /* IE/Edge */
+                elem.msRequestFullscreen();
+            }
+
+            videoContainer.classList.add("full_screen_state");
+            fullScreen.firstElementChild.classList.remove("fa-expand");
+            fullScreen.firstElementChild.classList.add("fa-compress");
+        }
+
+        function closeFullscreen() {
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.mozCancelFullScreen) {
+                /* Firefox */
+                document.mozCancelFullScreen();
+            } else if (document.webkitExitFullscreen) {
+                /* Chrome, Safari and Opera */
+                document.webkitExitFullscreen();
+            } else if (document.msExitFullscreen) {
+                /* IE/Edge */
+                document.msExitFullscreen();
+            }
+
+            videoContainer.classList.remove("full_screen_state");
+            fullScreen.firstElementChild.classList.remove("fa-compress");
+            fullScreen.firstElementChild.classList.add("fa-expand");
+        }
+
+        document.addEventListener('fullscreenchange', exitHandler);
+        document.addEventListener('webkitfullscreenchange', exitHandler);
+        document.addEventListener('mozfullscreenchange', exitHandler);
+        document.addEventListener('MSFullscreenChange', exitHandler);
+
+        function exitHandler() {
+            if (!document.fullscreenElement && !document.webkitIsFullScreen && !document.mozFullScreen && !document.msFullscreenElement) {
+                videoContainer.classList.remove("full_screen_state");
+                fullScreen.firstElementChild.classList.remove("fa-compress");
+                fullScreen.firstElementChild.classList.add("fa-expand");
+            }
+        }
+
+        function timeFormat(time) {
+
+            let minutes = Math.floor(time / 60);
+            let seconds = Math.floor(time - minutes * 60);
+            let minuteValue;
+            let secondValue;
+
+            if (minutes < 10) {
+                minuteValue = '0' + minutes;
+            } else {
+                minuteValue = minutes;
+            }
+
+            if (seconds < 10) {
+                secondValue = '0' + seconds;
+            } else {
+                secondValue = seconds;
+            }
+
+            return minuteValue + ':' + secondValue;
+        }
+
+        function isMobileDevice() {
+            return (typeof window.orientation !== "undefined") || (navigator.userAgent.indexOf('IEMobile') !== -1);
+        };
+
+        var timeout;
+        document.addEventListener('mousemove', function(e) {
+            if (e.target == videoOverlay) {
+                controlsContainer.style.display = "block";
+                videoOverlay.style.cursor = "default";
+            }
+            clearTimeout(timeout);
+            timeout = setTimeout(function() {
+                videoOverlay.style.cursor = "none";
+                controlsContainer.style.display = "none";
+            }, hideControlsDuration);
+
+        });
+    </script>
+
+</body>
+
+</html>
